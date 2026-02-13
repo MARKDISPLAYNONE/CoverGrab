@@ -1,42 +1,30 @@
 // Shared JWT verification utility for admin endpoints
-// This module exports functions used by admin-stats-* endpoints
+// Used by admin-stats-* and other admin functions
 
-// Base64URL decode
-export function base64UrlDecode(str: string): string {
-  // Add padding if needed
-  let padded = str;
-  while (padded.length % 4) {
-    padded += '=';
+import crypto from 'node:crypto';
+
+// Base64URL decode using Buffer (no atob/btoa)
+function base64UrlDecode(str: string): string {
+  // Convert from base64url to base64
+  let base64 = str.replace(/-/g, '+').replace(/_/g, '/');
+  // Pad with '=' to length multiple of 4
+  while (base64.length % 4) {
+    base64 += '=';
   }
-  // Replace URL-safe chars
-  const base64 = padded.replace(/-/g, '+').replace(/_/g, '/');
-  return atob(base64);
+  return Buffer.from(base64, 'base64').toString('utf8');
 }
 
-// Verify HMAC signature using Web Crypto API
-async function verifySignature(data: string, signature: string, secret: string): Promise<boolean> {
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    'raw',
-    encoder.encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
-  const expectedSig = await crypto.subtle.sign('HMAC', key, encoder.encode(data));
-  const expectedBytes = new Uint8Array(expectedSig);
-  
-  // Base64URL encode expected signature
-  let binary = '';
-  for (let i = 0; i < expectedBytes.length; i++) {
-    binary += String.fromCharCode(expectedBytes[i]);
-  }
-  const expectedB64 = btoa(binary)
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=/g, '');
-  
-  return signature === expectedB64;
+// Verify HMAC signature using Node crypto (HS256)
+async function verifySignature(
+  data: string,
+  signature: string,
+  secret: string
+): Promise<boolean> {
+  const hmac = crypto.createHmac('sha256', secret);
+  hmac.update(data);
+  // Node supports base64url output directly
+  const expectedB64Url = hmac.digest('base64url');
+  return signature === expectedB64Url;
 }
 
 export interface JWTPayload {
@@ -47,16 +35,22 @@ export interface JWTPayload {
   exp: number;
 }
 
-export interface VerifyResult {
-  valid: true;
-  payload: JWTPayload;
-} | {
-  valid: false;
-  error: string;
-}
+// Result type: either valid with payload, or invalid with error
+export type VerifyResult =
+  | {
+      valid: true;
+      payload: JWTPayload;
+    }
+  | {
+      valid: false;
+      error: string;
+    };
 
-// Verify JWT token
-export async function verifyJWT(token: string, secret: string): Promise<VerifyResult> {
+// Verify JWT token using HS256 + base64url
+export async function verifyJWT(
+  token: string,
+  secret: string
+): Promise<VerifyResult> {
   try {
     const parts = token.split('.');
     if (parts.length !== 3) {
@@ -66,7 +60,11 @@ export async function verifyJWT(token: string, secret: string): Promise<VerifyRe
     const [headerB64, payloadB64, signature] = parts;
 
     // Verify signature
-    const isValid = await verifySignature(`${headerB64}.${payloadB64}`, signature, secret);
+    const isValid = await verifySignature(
+      `${headerB64}.${payloadB64}`,
+      signature,
+      secret
+    );
     if (!isValid) {
       return { valid: false, error: 'Invalid token signature' };
     }
@@ -86,7 +84,7 @@ export async function verifyJWT(token: string, secret: string): Promise<VerifyRe
     }
 
     return { valid: true, payload };
-  } catch (error) {
+  } catch {
     return { valid: false, error: 'Token verification failed' };
   }
 }
@@ -100,8 +98,10 @@ export function extractBearerToken(request: Request): string | null {
   return authHeader.substring(7);
 }
 
-// Middleware-like function to verify admin access
-export async function verifyAdminAccess(request: Request): Promise<VerifyResult> {
+// Verify admin access from a Request (used in admin functions)
+export async function verifyAdminAccess(
+  request: Request
+): Promise<VerifyResult> {
   const token = extractBearerToken(request);
   if (!token) {
     return { valid: false, error: 'No authorization token provided' };
@@ -115,7 +115,7 @@ export async function verifyAdminAccess(request: Request): Promise<VerifyResult>
   return verifyJWT(token, jwtSecret);
 }
 
-// Create unauthorized response
+// Create a standardized unauthorized response
 export function unauthorizedResponse(error: string): Response {
   return new Response(JSON.stringify({ error }), {
     status: 401,
