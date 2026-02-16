@@ -46,14 +46,7 @@ export function getSupabaseClient(): SupabaseClient {
 
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
-
-    // DEBUG: log whether env vars appear to be set
-  console.log('[DEBUG] SUPABASE_URL set:', !!supabaseUrl);
-  console.log(
-    '[DEBUG] SUPABASE_SERVICE_KEY length:',
-    supabaseKey ? supabaseKey.length : 0
-  );
-
+  
   if (!supabaseUrl || !supabaseKey) {
     throw new Error('Missing Supabase environment variables');
   }
