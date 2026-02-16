@@ -2,7 +2,7 @@
  * CoverGrab Security Utilities
  * 
  * Shared security functions for all Netlify functions including:
- * - IP hashing and country detection
+ * - IP hashing and country detection 
  * - Blocked IP checking
  * - Security event logging
  * - Rate limiting
